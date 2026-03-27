@@ -13,7 +13,7 @@ tampermonkey/
    ├─ README.md ← 学起plus脚本说明
    ├─ autopaly.js ← 1.0 精简版（仅自动下一集）
    └─ StudyAids.js ← 3.1.6 完整版
-
+```
 ## 脚本分类说明
 
 ### 学起plus
