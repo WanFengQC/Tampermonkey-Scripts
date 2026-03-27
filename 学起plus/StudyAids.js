@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         学起plus学习助手
 // @namespace    https://github.com/WanFengQC/Tampermonkey-Scripts
-// @version      V3.1.6
-// @description  自动定位未达标课程与未完成小节，并在视频页自动进入下一课，支持悬浮球控制、自动恢复播放、视频静音
+// @version      V3.1.8
+// @description  自动定位未达标课程与未完成小节，并在视频页自动进入下一课，支持悬浮球控制、自动恢复播放、视频静音，修复浏览器弹窗拦截问题
 // @author       WanFengQC
 // @icon         https://images-eds-ssl.xboxlive.com/image?url=4rt9.lXDC4H_93laV1_eHHFT949fUipzkiFOBH3fAiZZUCdYojwUyX2aTonS1aIwMrx6NUIsHfUHSLzjGJFxxmExBZ_WBe9twW6n1MX62LnnDx7lEcEG1S6GaubVFiZuvOBzvB4wupq4yvAjW06oE42TUVNg5sZy5mLhetfMxvw-&format=webp&h=115
 // @match        *://cjyw.hdu.edu.cn/student/*
@@ -18,8 +18,8 @@
 
     const DEBUG = true;
 
-    const SETTINGS_KEY = 'xq_nav_settings_v316';
-    const FAB_POS_KEY = 'xq_nav_fab_pos_v316';
+    const SETTINGS_KEY = 'xq_nav_settings_v318';
+    const FAB_POS_KEY = 'xq_nav_fab_pos_v318';
 
     const defaultSettings = {
         enabled: true,
@@ -37,7 +37,7 @@
 
     function log(...args) {
         if (DEBUG) {
-            console.log('[学起3.1.6]', ...args);
+            console.log('[学起3.1.8]', ...args);
         }
     }
 
@@ -289,30 +289,140 @@
         el.appendChild(badge);
     }
 
+    function normalizeUrl(url) {
+        if (!url || typeof url !== 'string') {
+            return '';
+        }
+
+        const trimmed = url.trim();
+        if (!trimmed) {
+            return '';
+        }
+
+        try {
+            return new URL(trimmed, location.href).href;
+        } catch (e) {
+            return trimmed;
+        }
+    }
+
+    function extractQuotedUrls(text) {
+        if (!text) {
+            return [];
+        }
+
+        const results = [];
+        const regex = /['"]([^'"]+)['"]/g;
+        let m;
+
+        while ((m = regex.exec(text))) {
+            const value = (m[1] || '').trim();
+            if (!value) {
+                continue;
+            }
+            if (/^(https?:\/\/|\/)/i.test(value) || /study\.do|video/i.test(value)) {
+                results.push(normalizeUrl(value));
+            }
+        }
+
+        return results;
+    }
+
+    function extractJumpUrl(el) {
+        if (!el) {
+            return '';
+        }
+
+        const href = el.getAttribute('href');
+        if (href && href !== '#' && !/^javascript:/i.test(href)) {
+            return normalizeUrl(href);
+        }
+
+        const datasetCandidates = [
+            el.dataset?.href,
+            el.dataset?.url,
+            el.dataset?.src,
+            el.dataset?.link
+        ].filter(Boolean);
+
+        for (const item of datasetCandidates) {
+            const normalized = normalizeUrl(item);
+            if (normalized) {
+                return normalized;
+            }
+        }
+
+        const onclick = el.getAttribute('onclick') || '';
+
+        let m = onclick.match(/window\.open\(\s*['"]([^'"]+)['"]/i);
+        if (m && m[1]) {
+            return normalizeUrl(m[1]);
+        }
+
+        m = onclick.match(/location(?:\.href)?\s*=\s*['"]([^'"]+)['"]/i);
+        if (m && m[1]) {
+            return normalizeUrl(m[1]);
+        }
+
+        const quotedUrls = extractQuotedUrls(onclick);
+        if (quotedUrls.length > 0) {
+            return quotedUrls[0];
+        }
+
+        const parentLink = el.closest('a[href]');
+        if (parentLink) {
+            const parentHref = parentLink.getAttribute('href');
+            if (parentHref && parentHref !== '#' && !/^javascript:/i.test(parentHref)) {
+                return normalizeUrl(parentHref);
+            }
+        }
+
+        return '';
+    }
+
+    function navigateDirectly(el) {
+        const url = extractJumpUrl(el);
+        if (!url) {
+            return false;
+        }
+
+        log('直接跳转:', url);
+        location.href = url;
+        return true;
+    }
+
     function triggerRealClick(el) {
         if (!el) {
             return false;
         }
 
-        el.dispatchEvent(new MouseEvent('mousedown', {
-            bubbles: true,
-            cancelable: true,
-            view: window
-        }));
+        if (navigateDirectly(el)) {
+            return true;
+        }
 
-        el.dispatchEvent(new MouseEvent('mouseup', {
+        const eventInit = {
             bubbles: true,
-            cancelable: true,
-            view: window
-        }));
+            cancelable: true
+        };
 
-        el.dispatchEvent(new MouseEvent('click', {
-            bubbles: true,
-            cancelable: true,
-            view: window
-        }));
+        try {
+            el.dispatchEvent(new MouseEvent('mousedown', eventInit));
+            el.dispatchEvent(new MouseEvent('mouseup', eventInit));
+            el.dispatchEvent(new MouseEvent('click', eventInit));
+        } catch (e) {
+            log('模拟点击失败，尝试原生 click:', e);
+        }
 
-        return true;
+        if (typeof el.click === 'function') {
+            try {
+                el.click();
+                return true;
+            } catch (e) {
+                log('原生 click 失败:', e);
+            }
+        }
+
+        return false;
     }
 
     function installWindowOpenPatch() {
@@ -321,18 +431,36 @@
         }
 
         window.__xqOpenPatched = true;
-        const originalOpen = window.open;
 
-        window.open = function (url, target, features) {
-            log('拦截 window.open:', url, target, features);
-
-            if (typeof url === 'string' && url.trim()) {
-                location.href = url;
-                return window;
+        const patch = function (win) {
+            if (!win || win.__xqPatchedOpen) {
+                return;
             }
 
-            return originalOpen ? originalOpen.apply(this, arguments) : null;
+            win.__xqPatchedOpen = true;
+            const originalOpen = win.open;
+
+            win.open = function (url, target, features) {
+                log('拦截 window.open:', url, target, features);
+
+                if (typeof url === 'string' && url.trim()) {
+                    location.href = normalizeUrl(url);
+                    return win;
+                }
+
+                return originalOpen ? originalOpen.apply(this, arguments) : null;
+            };
         };
+
+        patch(window);
+
+        try {
+            if (typeof unsafeWindow !== 'undefined' && unsafeWindow) {
+                patch(unsafeWindow);
+            }
+        } catch (e) {
+            log('unsafeWindow patch 失败:', e);
+        }
     }
 
     async function waitForStudyCards(maxTry = 20) {
@@ -452,6 +580,8 @@
     }
 
     function runCourseIndexPage() {
+        installWindowOpenPatch();
+
         const lessonItems = [...document.querySelectorAll('ul.unitLevelList li')];
         const incompleteLessons = [];
 
@@ -676,7 +806,7 @@
         }
 
         drawer.innerHTML = `
-            <h3>学起 3.1.6 控制面板</h3>
+            <h3>学起 3.1.8 控制面板</h3>
 
             <div class="xq-row">
                 <label>自动打开第一门未达标课程</label>
