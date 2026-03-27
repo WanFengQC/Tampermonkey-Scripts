@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         学起plus自动连播
-// @namespace    http://tampermonkey.net/
+// @namespace    https://github.com/WanFengQC/Tampermonkey-Scripts
 // @version      V1.0
 // @description  当前视频播放结束后自动进入下一课
 // @author       WanFengQC
