@@ -1,8 +1,6 @@
 
 ---
 
-
-```markdown
 # 学起Plus 脚本目录说明
 
 这个目录用于存放“学起Plus”相关的 Tampermonkey 脚本。
