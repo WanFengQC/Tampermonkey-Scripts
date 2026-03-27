@@ -1,7 +1,6 @@
 
 ---
 
-## 子目录 README（放 `学起plus/README.md`）
 
 ```markdown
 # 学起Plus 脚本目录说明
