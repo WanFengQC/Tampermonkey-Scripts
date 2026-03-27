@@ -1,17 +1,86 @@
-# Tampermonkey Scripts
+# 学起Plus 自动学习导航脚本
 
-个人油猴脚本仓库，用于存放不同站点的辅助脚本。
+## 简介
 
-## Projects
+这是一个为“学起Plus”平台（sccchina.net & cjyw.hdu.edu.cn）设计的 Tampermonkey 用户脚本集合。
 
-- [学起plus](./学起plus/README.md)  
-  学起平台视频学习页自动连播脚本。
+目前包含两个版本：
 
-## Structure
+- 精简版：只负责视频页自动下一集
+- 完整版：支持课程定位、小节定位、自动下一课、自动恢复播放、静音、跨域同步、悬浮控制球等功能
 
-```text
-tampermonkey/
-├─ README.md
-└─ 学起plus/
-   ├─ autoplay.js
-   └─ README.md
+---
+
+## 文件结构
+
+tampermonkey/  
+- README.md ← 当前文件  
+- 学起plus/  
+  - README.md ← 子目录说明文件  
+  - autoplay.js ← 1.0 精简版（仅自动下一集）  
+  - StudyAids.js ← 3.1.6 完整版  
+
+---
+
+## 版本说明
+
+### autoplay.js
+精简版脚本，适合只需要“视频播放结束后自动进入下一集”的场景。
+
+主要功能：
+
+- 检测当前视频播放结束
+- 自动调用下一课逻辑
+- 适合只在视频页使用
+
+### StudyAids.js
+完整版脚本，适合需要完整学习辅助流程的场景。
+
+主要功能：
+
+- 自动扫描未达标课程
+- 自动定位未完成小节
+- 视频结束自动下一课
+- 视频暂停自动恢复播放
+- 视频静音
+- 跨域同步配置
+- 悬浮控制球控制开始 / 暂停脚本
+- 高亮未完成课程和小节
+
+---
+
+## 安装说明
+
+1. 安装 Tampermonkey 浏览器扩展
+2. 打开 Tampermonkey → 添加新脚本
+3. 选择需要导入的脚本版本：
+   - `autoplay.js`
+   - `StudyAids.js`
+4. 保存后刷新页面
+
+---
+
+## 使用建议
+
+- 如果你只想要“自动下一集”，使用 `autoplay.js`
+- 如果你希望自动定位课程和小节，并统一控制播放行为，使用 `StudyAids.js`
+
+---
+
+## 历史版本
+
+| 版本 | 类型 | 说明 | 文件名 |
+|------|------|------|--------|
+| 1.0 | 精简版 | 仅自动下一集 | autoplay.js |
+| 3.1.6 | 完整版 | 自动定位课程 / 小节 + 自动下一课 + 恢复播放 + 静音 + 跨域同步 | StudyAids.js |
+
+---
+
+## 开发 / 调试
+
+- 完整版脚本控制台日志前缀为：`[学起3.1.6]`
+- 如需重置完整版配置，可在控制台执行：
+
+```javascript
+GM_setValue('xq_nav_settings_v316', undefined)
+GM_setValue('xq_nav_fab_pos_v316', undefined)
