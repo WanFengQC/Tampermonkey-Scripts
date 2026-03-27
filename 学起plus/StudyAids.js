@@ -1,22 +1,25 @@
 // ==UserScript==
-// @name         学起plus学习助手 3.1.5
-// @namespace    http://tampermonkey.net/
-// @version      3.1.5
-// @description  自动定位未达标课程与未完成小节，并在视频页自动进入下一课，支持可拖动悬浮球控制、自动恢复播放、视频静音
+// @name         学起plus学习助手
+// @namespace    https://github.com/WanFengQC/Tampermonkey-Scripts
+// @version      V3.1.6
+// @description  自动定位未达标课程与未完成小节，并在视频页自动进入下一课，支持悬浮球控制、自动恢复播放、视频静音
 // @author       WanFengQC
 // @icon         https://images-eds-ssl.xboxlive.com/image?url=4rt9.lXDC4H_93laV1_eHHFT949fUipzkiFOBH3fAiZZUCdYojwUyX2aTonS1aIwMrx6NUIsHfUHSLzjGJFxxmExBZ_WBe9twW6n1MX62LnnDx7lEcEG1S6GaubVFiZuvOBzvB4wupq4yvAjW06oE42TUVNg5sZy5mLhetfMxvw-&format=webp&h=115
 // @match        *://cjyw.hdu.edu.cn/student/*
 // @match        *://*.sccchina.net/venus/study/index/study.do*
 // @match        *://*.sccchina.net/venus/study/activity/video/study.do*
-// @grant        none
+// @grant        GM_getValue
+// @grant        GM_setValue
+// @grant        GM_addValueChangeListener
 // ==/UserScript==
 
 (function () {
     'use strict';
 
     const DEBUG = true;
-    const STORAGE_KEY = 'xq_nav_settings_v315';
-    const FAB_POS_KEY = 'xq_nav_fab_pos_v315';
+
+    const SETTINGS_KEY = 'xq_nav_settings_v316';
+    const FAB_POS_KEY = 'xq_nav_fab_pos_v316';
 
     const defaultSettings = {
         enabled: true,
@@ -30,10 +33,11 @@
     let settings = loadSettings();
     let hasTriggered = false;
     let lastPanelText = '';
+    let rerunLock = false;
 
     function log(...args) {
         if (DEBUG) {
-            console.log('[学起3.1.5]', ...args);
+            console.log('[学起3.1.6]', ...args);
         }
     }
 
@@ -43,34 +47,30 @@
 
     function loadSettings() {
         try {
-            const raw = localStorage.getItem(STORAGE_KEY);
-            if (!raw) {
+            const saved = GM_getValue(SETTINGS_KEY, null);
+            if (!saved) {
                 return { ...defaultSettings };
             }
-            return { ...defaultSettings, ...JSON.parse(raw) };
+            return { ...defaultSettings, ...saved };
         } catch (e) {
             return { ...defaultSettings };
         }
     }
 
     function saveSettings() {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
+        GM_setValue(SETTINGS_KEY, settings);
     }
 
     function loadFabPos() {
         try {
-            const raw = localStorage.getItem(FAB_POS_KEY);
-            if (!raw) {
-                return { top: 120, right: 20 };
-            }
-            return JSON.parse(raw);
+            return GM_getValue(FAB_POS_KEY, { top: 120, right: 20 });
         } catch (e) {
             return { top: 120, right: 20 };
         }
     }
 
     function saveFabPos(pos) {
-        localStorage.setItem(FAB_POS_KEY, JSON.stringify(pos));
+        GM_setValue(FAB_POS_KEY, pos);
     }
 
     function addStyle() {
@@ -353,6 +353,26 @@
             await sleep(500);
         }
         return false;
+    }
+
+    function clearRuntimeControlOnPause() {
+        const video = document.querySelector('video');
+        if (video) {
+            video.muted = false;
+        }
+    }
+
+    function applyImmediateVideoSettings() {
+        const video = document.querySelector('video');
+        if (!video) {
+            return;
+        }
+
+        if (settings.enabled) {
+            video.muted = !!settings.autoMuteVideo;
+        } else {
+            video.muted = false;
+        }
     }
 
     function runStudyListPage() {
@@ -656,7 +676,7 @@
         }
 
         drawer.innerHTML = `
-            <h3>学起 3.1.5 控制面板</h3>
+            <h3>学起 3.1.6 控制面板</h3>
 
             <div class="xq-row">
                 <label>自动打开第一门未达标课程</label>
@@ -796,12 +816,7 @@
         autoMute.onchange = () => {
             settings.autoMuteVideo = autoMute.checked;
             saveSettings();
-
-            const video = document.querySelector('video');
-            if (video && settings.enabled) {
-                video.muted = !!settings.autoMuteVideo;
-            }
-
+            applyImmediateVideoSettings();
             rerunCurrentPageLogic();
         };
 
@@ -819,12 +834,7 @@
             saveSettings();
             syncUI();
             drawer.classList.remove('show');
-
-            const video = document.querySelector('video');
-            if (video) {
-                video.muted = false;
-            }
-
+            clearRuntimeControlOnPause();
             showPanel('脚本已暂停。');
         };
 
@@ -833,46 +843,114 @@
     }
 
     async function rerunCurrentPageLogic() {
-        if (!settings.enabled) {
-            showPanel('脚本已暂停。');
+        if (rerunLock) {
             return;
         }
 
-        hasTriggered = false;
+        rerunLock = true;
 
-        if (isStudyListPage()) {
-            showPanel('脚本已启动，正在扫描未达标课程...');
-            const ok = await waitForStudyCards();
-            if (ok) {
-                runStudyListPage();
-            } else {
-                showPanel('课程列表加载失败，未找到课程卡片。');
+        try {
+            if (!settings.enabled) {
+                showPanel('脚本已暂停。');
+                return;
             }
-            return;
-        }
 
-        if (isCourseIndexPage()) {
-            showPanel('脚本已启动，正在扫描未完成小节...');
-            const ok = await waitForLessonItems();
-            if (ok) {
-                runCourseIndexPage();
-            } else {
-                showPanel('课程目录加载失败，未找到课时列表。');
+            hasTriggered = false;
+
+            if (isStudyListPage()) {
+                showPanel('脚本已启动，正在扫描未达标课程...');
+                const ok = await waitForStudyCards();
+                if (ok) {
+                    runStudyListPage();
+                } else {
+                    showPanel('课程列表加载失败，未找到课程卡片。');
+                }
+                return;
             }
-            return;
-        }
 
-        if (isVideoPage()) {
-            showPanel('脚本已启动，正在接管当前视频页...');
-            await sleep(500);
-            scanAndBindVideo();
+            if (isCourseIndexPage()) {
+                showPanel('脚本已启动，正在扫描未完成小节...');
+                const ok = await waitForLessonItems();
+                if (ok) {
+                    runCourseIndexPage();
+                } else {
+                    showPanel('课程目录加载失败，未找到课时列表。');
+                }
+                return;
+            }
+
+            if (isVideoPage()) {
+                showPanel('脚本已启动，正在接管当前视频页...');
+                await sleep(500);
+                scanAndBindVideo();
+            }
+        } finally {
+            rerunLock = false;
         }
+    }
+
+    function setupCrossDomainSync() {
+        GM_addValueChangeListener(SETTINGS_KEY, async function (_name, _oldValue, newValue, remote) {
+            if (!remote) {
+                return;
+            }
+
+            settings = { ...defaultSettings, ...(newValue || {}) };
+            log('检测到跨域设置同步:', settings);
+
+            const drawer = document.getElementById('xq-drawer');
+            if (drawer) {
+                const autoCourse = drawer.querySelector('#xq-auto-course');
+                const autoLesson = drawer.querySelector('#xq-auto-lesson');
+                const autoNext = drawer.querySelector('#xq-auto-next');
+                const autoResume = drawer.querySelector('#xq-auto-resume');
+                const autoMute = drawer.querySelector('#xq-auto-mute');
+                const status = drawer.querySelector('#xq-status');
+
+                if (autoCourse) autoCourse.checked = settings.autoOpenCourse;
+                if (autoLesson) autoLesson.checked = settings.autoOpenLesson;
+                if (autoNext) autoNext.checked = settings.autoNextVideo;
+                if (autoResume) autoResume.checked = settings.autoResumeVideo;
+                if (autoMute) autoMute.checked = settings.autoMuteVideo;
+                if (status) status.textContent = `当前状态：${settings.enabled ? '运行中' : '已暂停'}`;
+            }
+
+            if (!settings.enabled) {
+                clearRuntimeControlOnPause();
+                showPanel('脚本已被其他页面暂停。');
+                return;
+            }
+
+            applyImmediateVideoSettings();
+            await rerunCurrentPageLogic();
+        });
+
+        GM_addValueChangeListener(FAB_POS_KEY, function (_name, _oldValue, newValue, remote) {
+            if (!remote || !newValue) {
+                return;
+            }
+
+            const fab = document.getElementById('xq-fab');
+            const drawer = document.getElementById('xq-drawer');
+
+            if (fab) {
+                fab.style.top = `${newValue.top}px`;
+                fab.style.right = `${newValue.right}px`;
+            }
+
+            if (fab && drawer) {
+                const fabRect = fab.getBoundingClientRect();
+                drawer.style.top = `${fabRect.top + 58}px`;
+                drawer.style.right = `${Math.max(20, window.innerWidth - fabRect.right)}px`;
+            }
+        });
     }
 
     async function boot() {
         addStyle();
         renderControlUI();
         ensurePanel();
+        setupCrossDomainSync();
 
         if (!settings.enabled) {
             showPanel('脚本当前已暂停。可点击悬浮球开启。');
