@@ -2,16 +2,17 @@
 
 本仓库用于存放我个人维护的所有油猴（Tampermonkey）脚本。
 
-不同网站、不同项目的脚本会按目录分类存放，方便管理、维护与更新。
+不同网站、不同项目的脚本会按目录分类存放，便于统一管理、维护与更新。
 
 ## 文件结构
 
+```text
 tampermonkey/
 ├─ README.md ← 当前文件
-├─ 学起plus/
-│  ├─ README.md ← 学起plus脚本说明
-│  ├─ autopaly.js ← 1.0 精简版（仅自动下一集）
-│  └─ StudyAids.js ← 3.1.6 完整版
+└─ 学起plus/
+   ├─ README.md ← 学起plus脚本说明
+   ├─ autopaly.js ← 1.0 精简版（仅自动下一集）
+   └─ StudyAids.js ← 3.1.6 完整版
 
 ## 脚本分类说明
 
