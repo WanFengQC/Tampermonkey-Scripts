@@ -4,7 +4,7 @@
 // @version      V1.0
 // @description  当前视频播放结束后自动进入下一课
 // @author       WanFengQC
-// @icon         https://cjstaticcdn.chinaedu.net/web-public-static/student/images/favicon.ico
+// @icon         https://images-eds-ssl.xboxlive.com/image?url=4rt9.lXDC4H_93laV1_eHHFT949fUipzkiFOBH3fAiZZUCdYojwUyX2aTonS1aIwMrx6NUIsHfUHSLzjGJFxxmExBZ_WBe9twW6n1MX62LnnDx7lEcEG1S6GaubVFiZuvOBzvB4wupq4yvAjW06oE42TUVNg5sZy5mLhetfMxvw-&format=webp&h=115
 // @match        *://*.sccchina.net/venus/study/activity/video/study.do*
 // @grant        none
 // ==/UserScript==
