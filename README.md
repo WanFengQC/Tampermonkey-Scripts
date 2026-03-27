@@ -11,8 +11,8 @@ tampermonkey/
 ├─ README.md ← 当前文件
 └─ 学起plus/
    ├─ README.md ← 学起plus脚本说明
-   ├─ autopaly.js ← 1.0 精简版（仅自动下一集）
-   └─ StudyAids.js ← 3.1.6 完整版
+   ├─ autoplay.js ← 1.0 精简版（仅自动下一集）
+   └─ StudyAids.js ← 3.1.8 完整版
 ```
 ## 脚本分类说明
 
@@ -22,12 +22,12 @@ tampermonkey/
 包含以下版本：
 
 #### 1.0 精简版
-- 文件名：`autopaly.js`
+- 文件名：`autoplay.js`
 - 功能：仅保留自动下一集功能
 - Greasy Fork 链接：
   https://greasyfork.org/zh-CN/scripts/571333
 
-#### 3.1.6 完整版
+#### 3.1.8 完整版
 - 文件名：`StudyAids.js`
 - 功能：完整增强版脚本
 - Greasy Fork 链接：
@@ -45,4 +45,4 @@ tampermonkey/
 
 - 本仓库是油猴脚本总仓库
 - 各脚本按项目或网站分类存放
-- `学起plus` 目录下当前包含 1.0 精简版与 3.1.6 完整版两个脚本
+- `学起plus` 目录下当前包含 1.0 精简版与 3.1.8 完整版两个脚本
