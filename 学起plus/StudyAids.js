@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         学起plus学习助手
 // @namespace    https://github.com/WanFengQC/Tampermonkey-Scripts
-// @version      V3.1.8
-// @description  自动定位未达标课程与未完成小节，并在视频页自动进入下一课，支持悬浮球控制、自动恢复播放、视频静音，修复浏览器弹窗拦截问题
+// @version      V3.2.0
+// @description  自动定位未达标课程与未完成小节，并在视频页自动进入下一课，支持悬浮球控制、自动恢复播放、低音量模式；修复自动下一课失效并优化后台播放稳定性
 // @author       WanFengQC
 // @icon         https://images-eds-ssl.xboxlive.com/image?url=4rt9.lXDC4H_93laV1_eHHFT949fUipzkiFOBH3fAiZZUCdYojwUyX2aTonS1aIwMrx6NUIsHfUHSLzjGJFxxmExBZ_WBe9twW6n1MX62LnnDx7lEcEG1S6GaubVFiZuvOBzvB4wupq4yvAjW06oE42TUVNg5sZy5mLhetfMxvw-&format=webp&h=115
 // @match        *://cjyw.hdu.edu.cn/student/*
@@ -11,6 +11,8 @@
 // @grant        GM_getValue
 // @grant        GM_setValue
 // @grant        GM_addValueChangeListener
+// @downloadURL https://update.greasyfork.org/scripts/571362/%E5%AD%A6%E8%B5%B7plus%E5%AD%A6%E4%B9%A0%E5%8A%A9%E6%89%8B.user.js
+// @updateURL https://update.greasyfork.org/scripts/571362/%E5%AD%A6%E8%B5%B7plus%E5%AD%A6%E4%B9%A0%E5%8A%A9%E6%89%8B.meta.js
 // ==/UserScript==
 
 (function () {
@@ -18,8 +20,8 @@
 
     const DEBUG = true;
 
-    const SETTINGS_KEY = 'xq_nav_settings_v318';
-    const FAB_POS_KEY = 'xq_nav_fab_pos_v318';
+    const SETTINGS_KEY = 'xq_nav_settings_v320';
+    const FAB_POS_KEY = 'xq_nav_fab_pos_v320';
 
     const defaultSettings = {
         enabled: true,
@@ -31,13 +33,18 @@
     };
 
     let settings = loadSettings();
-    let hasTriggered = false;
     let lastPanelText = '';
     let rerunLock = false;
 
+    let hasTriggered = false;
+    let lastVideoFingerprint = '';
+    let currentVideoMonitor = null;
+    let currentVideoBound = null;
+    let audioAppliedFingerprint = '';
+
     function log(...args) {
         if (DEBUG) {
-            console.log('[学起3.1.8]', ...args);
+            console.log('[学起3.2.0]', ...args);
         }
     }
 
@@ -48,9 +55,7 @@
     function loadSettings() {
         try {
             const saved = GM_getValue(SETTINGS_KEY, null);
-            if (!saved) {
-                return { ...defaultSettings };
-            }
+            if (!saved) return { ...defaultSettings };
             return { ...defaultSettings, ...saved };
         } catch (e) {
             return { ...defaultSettings };
@@ -74,9 +79,7 @@
     }
 
     function addStyle() {
-        if (document.getElementById('xq-nav-style')) {
-            return;
-        }
+        if (document.getElementById('xq-nav-style')) return;
 
         const style = document.createElement('style');
         style.id = 'xq-nav-style';
@@ -243,23 +246,11 @@
     }
 
     function parseTimeToSeconds(str) {
-        if (!str) {
-            return null;
-        }
-
+        if (!str) return null;
         const parts = str.trim().split(':').map(Number);
-        if (parts.some(Number.isNaN)) {
-            return null;
-        }
-
-        if (parts.length === 2) {
-            return parts[0] * 60 + parts[1];
-        }
-
-        if (parts.length === 3) {
-            return parts[0] * 3600 + parts[1] * 60 + parts[2];
-        }
-
+        if (parts.some(Number.isNaN)) return null;
+        if (parts.length === 2) return parts[0] * 60 + parts[1];
+        if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
         return null;
     }
 
@@ -279,63 +270,58 @@
     }
 
     function markTitle(el, text) {
-        if (!el || el.querySelector('.xq-nav-badge')) {
-            return;
-        }
-
+        if (!el || el.querySelector('.xq-nav-badge')) return;
         const badge = document.createElement('span');
         badge.className = 'xq-nav-badge';
         badge.textContent = text;
         el.appendChild(badge);
     }
 
-    function normalizeUrl(url) {
-        if (!url || typeof url !== 'string') {
-            return '';
-        }
+    function isAllowedJumpUrl(url) {
+        try {
+            const u = new URL(url, location.href);
 
-        const trimmed = url.trim();
-        if (!trimmed) {
-            return '';
+            if (!['http:', 'https:'].includes(u.protocol)) return false;
+
+            const host = u.hostname;
+            const path = u.pathname;
+
+            const hostOk =
+                host === 'cjyw.hdu.edu.cn' ||
+                host.endsWith('.sccchina.net');
+
+            if (!hostOk) return false;
+
+            const pathOk =
+                path.includes('/student/') ||
+                path.includes('/venus/study/index/study.do') ||
+                path.includes('/venus/study/activity/video/study.do');
+
+            return pathOk;
+        } catch (e) {
+            return false;
         }
+    }
+
+    function normalizeUrl(url) {
+        if (!url || typeof url !== 'string') return '';
+        const trimmed = url.trim();
+        if (!trimmed) return '';
 
         try {
             return new URL(trimmed, location.href).href;
         } catch (e) {
-            return trimmed;
+            return '';
         }
-    }
-
-    function extractQuotedUrls(text) {
-        if (!text) {
-            return [];
-        }
-
-        const results = [];
-        const regex = /['"]([^'"]+)['"]/g;
-        let m;
-
-        while ((m = regex.exec(text))) {
-            const value = (m[1] || '').trim();
-            if (!value) {
-                continue;
-            }
-            if (/^(https?:\/\/|\/)/i.test(value) || /study\.do|video/i.test(value)) {
-                results.push(normalizeUrl(value));
-            }
-        }
-
-        return results;
     }
 
     function extractJumpUrl(el) {
-        if (!el) {
-            return '';
-        }
+        if (!el) return '';
 
         const href = el.getAttribute('href');
         if (href && href !== '#' && !/^javascript:/i.test(href)) {
-            return normalizeUrl(href);
+            const u = normalizeUrl(href);
+            if (u && isAllowedJumpUrl(u)) return u;
         }
 
         const datasetCandidates = [
@@ -346,128 +332,76 @@
         ].filter(Boolean);
 
         for (const item of datasetCandidates) {
-            const normalized = normalizeUrl(item);
-            if (normalized) {
-                return normalized;
-            }
+            const u = normalizeUrl(item);
+            if (u && isAllowedJumpUrl(u)) return u;
         }
 
         const onclick = el.getAttribute('onclick') || '';
 
         let m = onclick.match(/window\.open\(\s*['"]([^'"]+)['"]/i);
         if (m && m[1]) {
-            return normalizeUrl(m[1]);
+            const u = normalizeUrl(m[1]);
+            if (u && isAllowedJumpUrl(u)) return u;
         }
 
         m = onclick.match(/location(?:\.href)?\s*=\s*['"]([^'"]+)['"]/i);
         if (m && m[1]) {
-            return normalizeUrl(m[1]);
-        }
-
-        const quotedUrls = extractQuotedUrls(onclick);
-        if (quotedUrls.length > 0) {
-            return quotedUrls[0];
+            const u = normalizeUrl(m[1]);
+            if (u && isAllowedJumpUrl(u)) return u;
         }
 
         const parentLink = el.closest('a[href]');
         if (parentLink) {
             const parentHref = parentLink.getAttribute('href');
             if (parentHref && parentHref !== '#' && !/^javascript:/i.test(parentHref)) {
-                return normalizeUrl(parentHref);
+                const u = normalizeUrl(parentHref);
+                if (u && isAllowedJumpUrl(u)) return u;
             }
         }
 
         return '';
     }
 
-    function navigateDirectly(el) {
-        const url = extractJumpUrl(el);
-        if (!url) {
-            return false;
-        }
-
-        log('直接跳转:', url);
-        location.href = url;
-        return true;
-    }
-
-    function triggerRealClick(el) {
-        if (!el) {
-            return false;
-        }
-
-        if (navigateDirectly(el)) {
-            return true;
-        }
-
-        const eventInit = {
-            bubbles: true,
-            cancelable: true
-        };
+    function nativeClick(el) {
+        if (!el) return false;
 
         try {
-            el.dispatchEvent(new MouseEvent('mousedown', eventInit));
-            el.dispatchEvent(new MouseEvent('mouseup', eventInit));
-            el.dispatchEvent(new MouseEvent('click', eventInit));
+            el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+            el.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true }));
+            el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+            return true;
         } catch (e) {
-            log('模拟点击失败，尝试原生 click:', e);
+            log('nativeClick dispatchEvent 失败:', e);
         }
 
-        if (typeof el.click === 'function') {
-            try {
+        try {
+            if (typeof el.click === 'function') {
                 el.click();
                 return true;
-            } catch (e) {
-                log('原生 click 失败:', e);
             }
+        } catch (e) {
+            log('nativeClick click() 失败:', e);
         }
 
         return false;
     }
 
-    function installWindowOpenPatch() {
-        if (window.__xqOpenPatched) {
-            return;
+    function triggerRealClick(el) {
+        if (!el) return false;
+
+        const url = extractJumpUrl(el);
+        if (url) {
+            log('安全跳转:', url);
+            location.href = url;
+            return true;
         }
 
-        window.__xqOpenPatched = true;
-
-        const patch = function (win) {
-            if (!win || win.__xqPatchedOpen) {
-                return;
-            }
-
-            win.__xqPatchedOpen = true;
-            const originalOpen = win.open;
-
-            win.open = function (url, target, features) {
-                log('拦截 window.open:', url, target, features);
-
-                if (typeof url === 'string' && url.trim()) {
-                    location.href = normalizeUrl(url);
-                    return win;
-                }
-
-                return originalOpen ? originalOpen.apply(this, arguments) : null;
-            };
-        };
-
-        patch(window);
-
-        try {
-            if (typeof unsafeWindow !== 'undefined' && unsafeWindow) {
-                patch(unsafeWindow);
-            }
-        } catch (e) {
-            log('unsafeWindow patch 失败:', e);
-        }
+        return nativeClick(el);
     }
 
     async function waitForStudyCards(maxTry = 20) {
         for (let i = 0; i < maxTry; i++) {
-            if (document.querySelectorAll('.in-c-el').length > 0) {
-                return true;
-            }
+            if (document.querySelectorAll('.in-c-el').length > 0) return true;
             await sleep(500);
         }
         return false;
@@ -475,9 +409,7 @@
 
     async function waitForLessonItems(maxTry = 20) {
         for (let i = 0; i < maxTry; i++) {
-            if (document.querySelectorAll('ul.unitLevelList li').length > 0) {
-                return true;
-            }
+            if (document.querySelectorAll('ul.unitLevelList li').length > 0) return true;
             await sleep(500);
         }
         return false;
@@ -488,24 +420,67 @@
         if (video) {
             video.muted = false;
         }
+        hasTriggered = false;
+    }
+
+    function getVideo() {
+        return document.querySelector('video');
+    }
+
+    function getVideoFingerprint(video) {
+        if (!video) return '';
+        const src = video.currentSrc || video.src || '';
+        const duration = Number.isFinite(video.duration) ? video.duration : 0;
+        return `${src}@@${duration}`;
+    }
+
+    function resetNextState(reason) {
+        hasTriggered = false;
+        log('重置自动下一课状态:', reason);
+    }
+
+    function applyAudioPolicy(video, force = false) {
+        if (!video) return;
+
+        const fp = getVideoFingerprint(video);
+
+        if (!force && fp && audioAppliedFingerprint === fp) {
+            return;
+        }
+
+        if (!settings.enabled || !settings.autoMuteVideo) {
+            video.muted = false;
+            audioAppliedFingerprint = fp;
+            log('音频策略：关闭低音量模式');
+            return;
+        }
+
+        // 不使用真正 muted，改用极低音量，降低后台被暂停概率
+        video.muted = false;
+
+        // 只设置一次，避免轮询反复写入影响播放器状态
+        if (video.volume > 0.05 || video.volume === 0) {
+            try {
+                video.volume = 0.01;
+            } catch (e) {
+                log('设置低音量失败:', e);
+            }
+        }
+
+        audioAppliedFingerprint = fp;
+        log('音频策略：已应用低音量模式', {
+            muted: video.muted,
+            volume: video.volume
+        });
     }
 
     function applyImmediateVideoSettings() {
         const video = document.querySelector('video');
-        if (!video) {
-            return;
-        }
-
-        if (settings.enabled) {
-            video.muted = !!settings.autoMuteVideo;
-        } else {
-            video.muted = false;
-        }
+        if (!video) return;
+        applyAudioPolicy(video, true);
     }
 
     function runStudyListPage() {
-        installWindowOpenPatch();
-
         const cards = [...document.querySelectorAll('.in-c-el')];
         const incompleteCourses = [];
 
@@ -513,28 +488,18 @@
             const text = (card.innerText || '').replace(/\s+/g, ' ');
             const match = text.match(/总时长:\s*([\d.]+)\s*\/\s*([\d.]+|--+)/);
 
-            if (!match) {
-                return;
-            }
+            if (!match) return;
 
             const learned = parseFloat(match[1]);
             const required = match[2].includes('--') ? null : parseFloat(match[2]);
 
-            if (required == null) {
-                return;
-            }
-
-            if (learned >= required) {
-                return;
-            }
+            if (required == null || learned >= required) return;
 
             const titleEl = card.querySelector('.in-c-el-summarize');
             const title = (titleEl?.innerText || `课程${index + 1}`).trim();
             const learnBtn = card.querySelector('a.videolearning-bt:not(.in-c-disabledbt)');
 
-            if (!learnBtn) {
-                return;
-            }
+            if (!learnBtn) return;
 
             card.classList.add('xq-nav-course');
             markTitle(titleEl, '未完成');
@@ -580,8 +545,6 @@
     }
 
     function runCourseIndexPage() {
-        installWindowOpenPatch();
-
         const lessonItems = [...document.querySelectorAll('ul.unitLevelList li')];
         const incompleteLessons = [];
 
@@ -589,27 +552,17 @@
             const timeSpan = li.querySelector('span.n');
             const actEl = li.querySelector('i[onclick*="beginStudy"]');
 
-            if (!timeSpan || !actEl) {
-                return;
-            }
+            if (!timeSpan || !actEl) return;
 
             const raw = (timeSpan.textContent || '').replace(/\s+/g, '');
             const match = raw.match(/^(\d{1,2}:\d{2}(?::\d{2})?)\/(\d{1,2}:\d{2}(?::\d{2})?)$/);
 
-            if (!match) {
-                return;
-            }
+            if (!match) return;
 
             const learned = parseTimeToSeconds(match[1]);
             const total = parseTimeToSeconds(match[2]);
 
-            if (learned == null || total == null) {
-                return;
-            }
-
-            if (learned >= total) {
-                return;
-            }
+            if (learned == null || total == null || learned >= total) return;
 
             const titleEl = li.querySelector('strong');
             const title = (titleEl?.textContent || '未命名小节').trim();
@@ -658,16 +611,30 @@
         }
     }
 
-    function getVideo() {
-        return document.querySelector('video');
+    function clickNextButtonFallback() {
+        const selectors = [
+            '.frameBtn-course_next',
+            '.frameBtn-course-next',
+            '[class*="course_next"]',
+            '[class*="course-next"]'
+        ];
+
+        for (const selector of selectors) {
+            const btn = document.querySelector(selector);
+            if (btn) {
+                log('点击下一课按钮:', selector, btn);
+                if (nativeClick(btn)) return true;
+            }
+        }
+
+        return false;
     }
 
     function goNext() {
-        if (!settings.enabled || !settings.autoNextVideo) {
-            return;
-        }
+        if (!settings.enabled || !settings.autoNextVideo) return;
 
         if (hasTriggered) {
+            log('goNext 已触发过，本次跳过');
             return;
         }
 
@@ -676,6 +643,7 @@
 
         try {
             if (typeof window.doNext === 'function') {
+                log('视频页：调用 window.doNext()');
                 window.doNext();
                 return;
             }
@@ -683,30 +651,151 @@
             log('视频页：doNext() 调用失败:', e);
         }
 
-        const btn = document.querySelector('.frameBtn-course_next');
-        if (btn) {
-            btn.click();
-        }
-    }
-
-    function bindVideo(video) {
-        if (!video) {
+        if (clickNextButtonFallback()) {
             return;
         }
 
-        if (video.dataset.autoNextBound !== '1') {
-            video.dataset.autoNextBound = '1';
-            hasTriggered = false;
+        log('视频页：未找到下一课方法，恢复可再次尝试');
+        hasTriggered = false;
+    }
+
+    function bindVideoDebugEvents(video) {
+        if (!video || video.dataset.xqDebugBound === '1') return;
+        video.dataset.xqDebugBound = '1';
+
+        video.addEventListener('pause', () => {
+            log('video pause', {
+                hidden: document.hidden,
+                muted: video.muted,
+                volume: video.volume,
+                currentTime: video.currentTime,
+                duration: video.duration,
+                ended: video.ended,
+                readyState: video.readyState
+            });
+        });
+
+        video.addEventListener('playing', () => {
+            log('video playing', {
+                hidden: document.hidden,
+                muted: video.muted,
+                volume: video.volume,
+                currentTime: video.currentTime,
+                duration: video.duration
+            });
+        });
+
+        video.addEventListener('volumechange', () => {
+            log('video volumechange', {
+                hidden: document.hidden,
+                muted: video.muted,
+                volume: video.volume,
+                currentTime: video.currentTime
+            });
+        });
+
+        document.addEventListener('visibilitychange', () => {
+            log('visibilitychange', {
+                hidden: document.hidden,
+                currentTime: video.currentTime,
+                paused: video.paused,
+                muted: video.muted,
+                volume: video.volume
+            });
+        });
+    }
+
+    function bindVideo(video) {
+        if (!video) return;
+
+        bindVideoDebugEvents(video);
+
+        if (currentVideoBound !== video) {
+            currentVideoBound = video;
+
+            if (currentVideoMonitor) {
+                clearInterval(currentVideoMonitor);
+                currentVideoMonitor = null;
+            }
+
+            lastVideoFingerprint = '';
+            audioAppliedFingerprint = '';
+            resetNextState('检测到新的 video DOM');
+        }
+
+        if (video.dataset.autoLogicBound !== '1') {
+            video.dataset.autoLogicBound = '1';
+
+            video.addEventListener('loadedmetadata', () => {
+                const fp = getVideoFingerprint(video);
+                if (fp !== lastVideoFingerprint) {
+                    lastVideoFingerprint = fp;
+                    audioAppliedFingerprint = '';
+                    resetNextState('loadedmetadata 新视频');
+                }
+                applyAudioPolicy(video, true);
+            });
+
+            video.addEventListener('emptied', () => {
+                audioAppliedFingerprint = '';
+                resetNextState('video emptied');
+            });
+
+            video.addEventListener('play', () => {
+                const fp = getVideoFingerprint(video);
+
+                if (fp !== lastVideoFingerprint) {
+                    lastVideoFingerprint = fp;
+                    audioAppliedFingerprint = '';
+                    resetNextState('play 时检测到新视频');
+                } else if (video.currentTime < 1.5) {
+                    resetNextState('新一轮播放开始');
+                }
+
+                applyAudioPolicy(video);
+            });
 
             video.addEventListener('ended', () => {
+                log('检测到 ended 事件');
                 if (settings.enabled && settings.autoNextVideo) {
                     setTimeout(goNext, 1500);
                 }
             });
+        }
 
-            const nextTimer = setInterval(() => {
+        if (!currentVideoMonitor) {
+            currentVideoMonitor = setInterval(() => {
                 if (!document.contains(video)) {
-                    clearInterval(nextTimer);
+                    clearInterval(currentVideoMonitor);
+                    currentVideoMonitor = null;
+                    currentVideoBound = null;
+                    return;
+                }
+
+                const fp = getVideoFingerprint(video);
+                if (fp && fp !== lastVideoFingerprint) {
+                    lastVideoFingerprint = fp;
+                    audioAppliedFingerprint = '';
+                    resetNextState('轮询检测到视频源变化');
+                    applyAudioPolicy(video, true);
+                }
+
+                if (!settings.enabled) {
+                    return;
+                }
+
+                if (
+                    settings.autoResumeVideo &&
+                    video.paused &&
+                    !video.ended &&
+                    video.readyState >= 2
+                ) {
+                    video.play().catch((err) => {
+                        log('后台自动恢复播放失败:', err);
+                    });
+                }
+
+                if (!settings.autoNextVideo) {
                     return;
                 }
 
@@ -715,41 +804,12 @@
                 }
 
                 const remain = video.duration - video.currentTime;
+
                 if (remain <= 0.3 && (video.ended || video.paused)) {
-                    clearInterval(nextTimer);
-                    if (settings.enabled && settings.autoNextVideo) {
-                        setTimeout(goNext, 1200);
-                    }
+                    log('检测到视频接近结束，执行兜底跳转');
+                    setTimeout(goNext, 1200);
                 }
-            }, 2000);
-        }
-
-        if (settings.enabled) {
-            video.muted = !!settings.autoMuteVideo;
-        }
-
-        if (video.dataset.autoResumeBound !== '1') {
-            video.dataset.autoResumeBound = '1';
-
-            const resumeTimer = setInterval(() => {
-                if (!document.contains(video)) {
-                    clearInterval(resumeTimer);
-                    return;
-                }
-
-                if (settings.enabled) {
-                    video.muted = !!settings.autoMuteVideo;
-
-                    if (
-                        settings.autoResumeVideo &&
-                        video.paused &&
-                        !video.ended &&
-                        video.readyState >= 2
-                    ) {
-                        video.play().catch(() => {});
-                    }
-                }
-            }, 2000);
+            }, 1500);
         }
     }
 
@@ -772,7 +832,7 @@
             }
 
             if (settings.enabled && settings.autoMuteVideo) {
-                text += ' 已开启静音。';
+                text += ' 已开启低音量模式。';
             }
 
             showPanel(text);
@@ -782,9 +842,7 @@
     }
 
     function renderControlUI() {
-        if (document.getElementById('xq-fab')) {
-            return;
-        }
+        if (document.getElementById('xq-fab')) return;
 
         const pos = loadFabPos();
 
@@ -806,7 +864,7 @@
         }
 
         drawer.innerHTML = `
-            <h3>学起 3.1.8 控制面板</h3>
+            <h3>学起 3.2.0 控制面板</h3>
 
             <div class="xq-row">
                 <label>自动打开第一门未达标课程</label>
@@ -829,7 +887,7 @@
             </div>
 
             <div class="xq-row">
-                <label>视频静音</label>
+                <label>低音量模式（替代静音）</label>
                 <input id="xq-auto-mute" class="xq-switch" type="checkbox">
             </div>
 
@@ -881,9 +939,7 @@
         });
 
         document.addEventListener('mousemove', (e) => {
-            if (!dragging) {
-                return;
-            }
+            if (!dragging) return;
 
             const dx = e.clientX - startX;
             const dy = e.clientY - startY;
@@ -898,9 +954,7 @@
         });
 
         document.addEventListener('mouseup', () => {
-            if (!dragging) {
-                return;
-            }
+            if (!dragging) return;
 
             dragging = false;
             saveFabPos({
@@ -934,6 +988,7 @@
         autoNext.onchange = () => {
             settings.autoNextVideo = autoNext.checked;
             saveSettings();
+            resetNextState('切换自动下一课开关');
             rerunCurrentPageLogic();
         };
 
@@ -955,6 +1010,7 @@
             saveSettings();
             syncUI();
             drawer.classList.remove('show');
+            resetNextState('脚本启动');
             showPanel('脚本已启动，正在执行当前页逻辑...');
             await rerunCurrentPageLogic();
         };
@@ -973,10 +1029,7 @@
     }
 
     async function rerunCurrentPageLogic() {
-        if (rerunLock) {
-            return;
-        }
-
+        if (rerunLock) return;
         rerunLock = true;
 
         try {
@@ -985,27 +1038,21 @@
                 return;
             }
 
-            hasTriggered = false;
+            resetNextState('重新执行当前页逻辑');
 
             if (isStudyListPage()) {
                 showPanel('脚本已启动，正在扫描未达标课程...');
                 const ok = await waitForStudyCards();
-                if (ok) {
-                    runStudyListPage();
-                } else {
-                    showPanel('课程列表加载失败，未找到课程卡片。');
-                }
+                if (ok) runStudyListPage();
+                else showPanel('课程列表加载失败，未找到课程卡片。');
                 return;
             }
 
             if (isCourseIndexPage()) {
                 showPanel('脚本已启动，正在扫描未完成小节...');
                 const ok = await waitForLessonItems();
-                if (ok) {
-                    runCourseIndexPage();
-                } else {
-                    showPanel('课程目录加载失败，未找到课时列表。');
-                }
+                if (ok) runCourseIndexPage();
+                else showPanel('课程目录加载失败，未找到课时列表。');
                 return;
             }
 
@@ -1021,9 +1068,7 @@
 
     function setupCrossDomainSync() {
         GM_addValueChangeListener(SETTINGS_KEY, async function (_name, _oldValue, newValue, remote) {
-            if (!remote) {
-                return;
-            }
+            if (!remote) return;
 
             settings = { ...defaultSettings, ...(newValue || {}) };
             log('检测到跨域设置同步:', settings);
@@ -1052,13 +1097,12 @@
             }
 
             applyImmediateVideoSettings();
+            resetNextState('跨域同步后恢复');
             await rerunCurrentPageLogic();
         });
 
         GM_addValueChangeListener(FAB_POS_KEY, function (_name, _oldValue, newValue, remote) {
-            if (!remote || !newValue) {
-                return;
-            }
+            if (!remote || !newValue) return;
 
             const fab = document.getElementById('xq-fab');
             const drawer = document.getElementById('xq-drawer');
@@ -1089,21 +1133,15 @@
 
         if (isStudyListPage()) {
             const ok = await waitForStudyCards();
-            if (ok) {
-                runStudyListPage();
-            } else {
-                showPanel('课程列表加载失败，未找到课程卡片。');
-            }
+            if (ok) runStudyListPage();
+            else showPanel('课程列表加载失败，未找到课程卡片。');
             return;
         }
 
         if (isCourseIndexPage()) {
             const ok = await waitForLessonItems();
-            if (ok) {
-                runCourseIndexPage();
-            } else {
-                showPanel('课程目录加载失败，未找到课时列表。');
-            }
+            if (ok) runCourseIndexPage();
+            else showPanel('课程目录加载失败，未找到课时列表。');
             return;
         }
 
@@ -1113,15 +1151,13 @@
 
             let pending = false;
             const observer = new MutationObserver(() => {
-                if (pending) {
-                    return;
-                }
-
+                if (pending) return;
                 pending = true;
+
                 setTimeout(() => {
                     scanAndBindVideo();
                     pending = false;
-                }, 500);
+                }, 400);
             });
 
             observer.observe(document.body, {
