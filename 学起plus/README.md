@@ -9,12 +9,12 @@
 ### StudyAids.js
 
 - **脚本名称**：学起plus学习助手
-- **当前版本**：`3.2.2`
+- **当前版本**：`3.2.1`
 - **脚本类型**：完整版
 - **适用场景**：学起平台课程列表页、课程目录页、视频播放页
 
 **GreasyFork 安装地址：**  
-[学起plus学习助手 3.2.2](https://greasyfork.org/zh-CN/scripts/571362)
+[学起plus学习助手 3.2.1](https://greasyfork.org/zh-CN/scripts/571362)
 
 ---
 
