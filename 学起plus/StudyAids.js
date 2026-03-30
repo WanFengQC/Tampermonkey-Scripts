@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         学起plus学习助手
 // @namespace    https://github.com/WanFengQC/Tampermonkey-Scripts
-// @version      V3.2.0
+// @version      V3.2.1
 // @description  自动定位未达标课程与未完成小节，并在视频页自动进入下一课，支持悬浮球控制、自动恢复播放、低音量模式；修复自动下一课失效并优化后台播放稳定性
 // @author       WanFengQC
 // @icon         https://images-eds-ssl.xboxlive.com/image?url=4rt9.lXDC4H_93laV1_eHHFT949fUipzkiFOBH3fAiZZUCdYojwUyX2aTonS1aIwMrx6NUIsHfUHSLzjGJFxxmExBZ_WBe9twW6n1MX62LnnDx7lEcEG1S6GaubVFiZuvOBzvB4wupq4yvAjW06oE42TUVNg5sZy5mLhetfMxvw-&format=webp&h=115
@@ -20,8 +20,8 @@
 
     const DEBUG = true;
 
-    const SETTINGS_KEY = 'xq_nav_settings_v320';
-    const FAB_POS_KEY = 'xq_nav_fab_pos_v320';
+    const SETTINGS_KEY = 'xq_nav_settings_v321';
+    const FAB_POS_KEY = 'xq_nav_fab_pos_v321';
 
     const defaultSettings = {
         enabled: true,
@@ -44,7 +44,7 @@
 
     function log(...args) {
         if (DEBUG) {
-            console.log('[学起3.2.0]', ...args);
+            console.log('[学起3.2.1]', ...args);
         }
     }
 
@@ -439,6 +439,63 @@
         log('重置自动下一课状态:', reason);
     }
 
+    function installPageBridge() {
+        if (window.__xqBridgeInjected) return;
+        window.__xqBridgeInjected = true;
+
+        const script = document.createElement('script');
+        script.textContent = `
+            (function () {
+                if (window.__xqDoNextBridgeInstalled) return;
+                window.__xqDoNextBridgeInstalled = true;
+
+                document.addEventListener('xq-call-doNext', function () {
+                    try {
+                        if (typeof window.doNext === 'function') {
+                            console.log('[学起-页面桥] 调用 doNext()');
+                            window.doNext();
+                            return;
+                        }
+
+                        var selectors = [
+                            '.frameBtn-course_next',
+                            '.frameBtn-course-next',
+                            '[class*="course_next"]',
+                            '[class*="course-next"]',
+                            '[onclick*="doNext"]',
+                            '[onclick*="next"]'
+                        ];
+
+                        for (var i = 0; i < selectors.length; i++) {
+                            var btn = document.querySelector(selectors[i]);
+                            if (btn) {
+                                console.log('[学起-页面桥] 点击下一课按钮:', selectors[i], btn);
+                                btn.click();
+                                return;
+                            }
+                        }
+
+                        console.log('[学起-页面桥] 未找到 doNext 或下一课按钮');
+                    } catch (e) {
+                        console.log('[学起-页面桥] 执行失败:', e);
+                    }
+                });
+            })();
+        `;
+        document.documentElement.appendChild(script);
+        script.remove();
+    }
+
+    function callPageDoNext() {
+        try {
+            document.dispatchEvent(new CustomEvent('xq-call-doNext'));
+            return true;
+        } catch (e) {
+            log('派发页面桥事件失败:', e);
+            return false;
+        }
+    }
+
     function applyAudioPolicy(video, force = false) {
         if (!video) return;
 
@@ -455,10 +512,8 @@
             return;
         }
 
-        // 不使用真正 muted，改用极低音量，降低后台被暂停概率
         video.muted = false;
 
-        // 只设置一次，避免轮询反复写入影响播放器状态
         if (video.volume > 0.05 || video.volume === 0) {
             try {
                 video.volume = 0.01;
@@ -616,7 +671,9 @@
             '.frameBtn-course_next',
             '.frameBtn-course-next',
             '[class*="course_next"]',
-            '[class*="course-next"]'
+            '[class*="course-next"]',
+            '[onclick*="doNext"]',
+            '[onclick*="next"]'
         ];
 
         for (const selector of selectors) {
@@ -641,14 +698,10 @@
         hasTriggered = true;
         log('视频页：准备进入下一课');
 
-        try {
-            if (typeof window.doNext === 'function') {
-                log('视频页：调用 window.doNext()');
-                window.doNext();
-                return;
-            }
-        } catch (e) {
-            log('视频页：doNext() 调用失败:', e);
+        const bridgeOk = callPageDoNext();
+        if (bridgeOk) {
+            log('视频页：已通过页面桥请求下一课');
+            return;
         }
 
         if (clickNextButtonFallback()) {
@@ -864,7 +917,7 @@
         }
 
         drawer.innerHTML = `
-            <h3>学起 3.2.0 控制面板</h3>
+            <h3>学起 3.2.1 控制面板</h3>
 
             <div class="xq-row">
                 <label>自动打开第一门未达标课程</label>
@@ -1057,6 +1110,7 @@
             }
 
             if (isVideoPage()) {
+                installPageBridge();
                 showPanel('脚本已启动，正在接管当前视频页...');
                 await sleep(500);
                 scanAndBindVideo();
@@ -1146,6 +1200,7 @@
         }
 
         if (isVideoPage()) {
+            installPageBridge();
             await sleep(1000);
             scanAndBindVideo();
 
