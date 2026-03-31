@@ -8,7 +8,7 @@
 
 本仓库目前包含两个版本的脚本：
 
-- **autopaly.js**：精简版，仅保留“视频结束自动下一课”
+- **学起plus/Autoplay.js**：精简版，仅保留“视频结束自动下一课”
 - **学起plus/StudyAids.js**：完整版，提供课程定位、自动连播、低音量模式、悬浮球控制等完整功能
 
 适合根据不同需求自由选择：
@@ -20,7 +20,7 @@
 
 ## 功能对比
 
-| 功能 | autopaly.js（1.0） | StudyAids.js（3.2.5） |
+| 功能 | Autoplay.js（1.0） | StudyAids.js（3.2.5） |
 |---|---:|---:|
 | 视频结束自动下一课 | ✅ | ✅ |
 | 自动定位未达标课程 | ❌ | ✅ |
@@ -36,7 +36,7 @@
 
 ### 1. 学起plus自动连播（精简版）
 
-- **文件名**：`autopaly.js`
+- **文件名**：`学起plus/Autoplay.js`
 - **版本**：`1.0`
 - **定位**：只做一件事——自动下一课
 - **适合人群**：只想要最基础自动连播功能的用户
@@ -63,9 +63,10 @@
 ```text
 tampermonkey/
 ├─ README.md
-├─ autopaly.js
+├─ .gitignore
 └─ 学起plus/
    ├─ README.md
+   ├─ Autoplay.js
    └─ StudyAids.js
 ```
 
@@ -107,7 +108,7 @@ tampermonkey/
 
 ## 使用说明
 
-### autopaly.js
+### Autoplay.js
 
 安装后进入目标视频页面即可自动生效，无需额外设置。
 
