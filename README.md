@@ -20,7 +20,7 @@
 
 ## 功能对比
 
-| 功能 | autopaly.js（1.0） | StudyAids.js（3.2.1） |
+| 功能 | autopaly.js（1.0） | StudyAids.js（3.2.3） |
 |---|---:|---:|
 | 视频结束自动下一课 | ✅ | ✅ |
 | 自动定位未达标课程 | ❌ | ✅ |
@@ -49,12 +49,12 @@
 ### 2. 学起plus学习助手（完整版）
 
 - **文件名**：`学起plus/StudyAids.js`
-- **版本**：`3.2.1`
+- **版本**：`3.2.3`
 - **定位**：围绕学起平台的完整学习辅助脚本
 - **适合人群**：希望自动化完成课程定位、课时推进与播放控制的用户
 
 **GreasyFork 安装地址：**  
-[学起plus学习助手 3.2.1](https://greasyfork.org/zh-CN/scripts/571362)
+[学起plus学习助手 3.2.3](https://greasyfork.org/zh-CN/scripts/571362)
 
 ---
 
@@ -78,7 +78,7 @@ tampermonkey/
 适合只需要“自动下一课”功能的用户。  
 特点是逻辑简单、依赖少、兼容性高。
 
-### 完整版 3.2.1
+### 完整版 3.2.3
 
 在精简版基础上扩展了完整的学习辅助能力，并持续针对以下问题进行优化：
 
@@ -129,7 +129,7 @@ tampermonkey/
 
 - `*.sccchina.net/venus/study/activity/video/study.do*`
 
-### 完整版 3.2.1
+### 完整版 3.2.3
 
 - `cjyw.hdu.edu.cn/student/*`
 - `*.sccchina.net/venus/study/index/study.do*`

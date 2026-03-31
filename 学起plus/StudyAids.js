@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         学起plus学习助手
 // @namespace    https://github.com/WanFengQC/Tampermonkey-Scripts
-// @version      V3.2.1
+// @version      V3.2.3
 // @description  自动定位未达标课程与未完成小节，并在视频页自动进入下一课，支持悬浮球控制、自动恢复播放、低音量模式；修复自动下一课失效并优化后台播放稳定性
 // @author       WanFengQC
 // @icon         https://images-eds-ssl.xboxlive.com/image?url=4rt9.lXDC4H_93laV1_eHHFT949fUipzkiFOBH3fAiZZUCdYojwUyX2aTonS1aIwMrx6NUIsHfUHSLzjGJFxxmExBZ_WBe9twW6n1MX62LnnDx7lEcEG1S6GaubVFiZuvOBzvB4wupq4yvAjW06oE42TUVNg5sZy5mLhetfMxvw-&format=webp&h=115
@@ -20,8 +20,8 @@
 
     const DEBUG = true;
 
-    const SETTINGS_KEY = 'xq_nav_settings_v321';
-    const FAB_POS_KEY = 'xq_nav_fab_pos_v321';
+    const SETTINGS_KEY = 'xq_nav_settings_v323';
+    const FAB_POS_KEY = 'xq_nav_fab_pos_v323';
 
     const defaultSettings = {
         enabled: true,
@@ -41,10 +41,11 @@
     let currentVideoMonitor = null;
     let currentVideoBound = null;
     let audioAppliedFingerprint = '';
+    let lastRouteKey = '';
 
     function log(...args) {
         if (DEBUG) {
-            console.log('[学起3.2.1]', ...args);
+            console.log('[学起3.2.3]', ...args);
         }
     }
 
@@ -255,8 +256,21 @@
     }
 
     function isStudyListPage() {
-        return location.hostname.includes('cjyw.hdu.edu.cn') &&
-               location.href.includes('#Subpage/Study');
+        if (!location.hostname.includes('cjyw.hdu.edu.cn')) {
+            return false;
+        }
+
+        const pathOk = /^\/student\/?$/.test(location.pathname);
+        if (!pathOk) {
+            return false;
+        }
+
+        const hash = location.hash || '';
+        if (!hash) {
+            return true;
+        }
+
+        return hash.includes('Subpage/Study') || hash.includes('Study');
     }
 
     function isCourseIndexPage() {
@@ -533,6 +547,55 @@
         const video = document.querySelector('video');
         if (!video) return;
         applyAudioPolicy(video, true);
+    }
+
+    function getRouteKey() {
+        return `${location.pathname}${location.search}${location.hash}`;
+    }
+
+    function queueRouteRerun(reason) {
+        setTimeout(() => {
+            const routeKey = getRouteKey();
+
+            if (routeKey === lastRouteKey) {
+                return;
+            }
+
+            lastRouteKey = routeKey;
+            log('route changed:', reason, routeKey);
+            rerunCurrentPageLogic();
+        }, 300);
+    }
+
+    function installRouteWatcher() {
+        lastRouteKey = getRouteKey();
+
+        window.addEventListener('hashchange', () => {
+            queueRouteRerun('hashchange');
+        });
+
+        window.addEventListener('popstate', () => {
+            queueRouteRerun('popstate');
+        });
+
+        if (window.history && !window.history.__xqRoutePatched) {
+            const rawPushState = window.history.pushState;
+            const rawReplaceState = window.history.replaceState;
+
+            window.history.pushState = function (...args) {
+                const result = rawPushState.apply(this, args);
+                queueRouteRerun('pushState');
+                return result;
+            };
+
+            window.history.replaceState = function (...args) {
+                const result = rawReplaceState.apply(this, args);
+                queueRouteRerun('replaceState');
+                return result;
+            };
+
+            window.history.__xqRoutePatched = true;
+        }
     }
 
     function runStudyListPage() {
@@ -917,7 +980,7 @@
         }
 
         drawer.innerHTML = `
-            <h3>学起 3.2.1 控制面板</h3>
+            <h3>学起 3.2.3 控制面板</h3>
 
             <div class="xq-row">
                 <label>自动打开第一门未达标课程</label>
@@ -1179,6 +1242,7 @@
         renderControlUI();
         ensurePanel();
         setupCrossDomainSync();
+        installRouteWatcher();
 
         if (!settings.enabled) {
             showPanel('脚本当前已暂停。可点击悬浮球开启。');
