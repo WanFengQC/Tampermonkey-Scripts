@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         学起plus学习助手
 // @namespace    https://github.com/WanFengQC/Tampermonkey-Scripts
-// @version      V3.2.3
+// @version      V3.2.5
 // @description  自动定位未达标课程与未完成小节，并在视频页自动进入下一课，支持悬浮球控制、自动恢复播放、低音量模式；修复自动下一课失效并优化后台播放稳定性
 // @author       WanFengQC
 // @icon         https://images-eds-ssl.xboxlive.com/image?url=4rt9.lXDC4H_93laV1_eHHFT949fUipzkiFOBH3fAiZZUCdYojwUyX2aTonS1aIwMrx6NUIsHfUHSLzjGJFxxmExBZ_WBe9twW6n1MX62LnnDx7lEcEG1S6GaubVFiZuvOBzvB4wupq4yvAjW06oE42TUVNg5sZy5mLhetfMxvw-&format=webp&h=115
@@ -20,8 +20,8 @@
 
     const DEBUG = true;
 
-    const SETTINGS_KEY = 'xq_nav_settings_v323';
-    const FAB_POS_KEY = 'xq_nav_fab_pos_v323';
+    const SETTINGS_KEY = 'xq_nav_settings_v325';
+    const FAB_POS_KEY = 'xq_nav_fab_pos_v325';
 
     const defaultSettings = {
         enabled: true,
@@ -45,7 +45,7 @@
 
     function log(...args) {
         if (DEBUG) {
-            console.log('[学起3.2.3]', ...args);
+            console.log('[学起3.2.5]', ...args);
         }
     }
 
@@ -662,27 +662,101 @@
         }
     }
 
-    function runCourseIndexPage() {
-        const lessonItems = [...document.querySelectorAll('ul.unitLevelList li')];
-        const incompleteLessons = [];
+    function extractLessonProgress(li) {
+        const texts = new Set();
+        const candidates = li.querySelectorAll('span, strong, em, b, div, p');
 
-        lessonItems.forEach(li => {
-            const timeSpan = li.querySelector('span.n');
-            const actEl = li.querySelector('i[onclick*="beginStudy"]');
+        texts.add((li.textContent || '').replace(/\s+/g, ' '));
 
-            if (!timeSpan || !actEl) return;
+        candidates.forEach(node => {
+            const text = (node.textContent || '').replace(/\s+/g, ' ');
+            if (text) {
+                texts.add(text);
+            }
+        });
 
-            const raw = (timeSpan.textContent || '').replace(/\s+/g, '');
-            const match = raw.match(/^(\d{1,2}:\d{2}(?::\d{2})?)\/(\d{1,2}:\d{2}(?::\d{2})?)$/);
-
-            if (!match) return;
+        for (const text of texts) {
+            const match = text.match(/(\d+:\d{2}(?::\d{2})?)\s*\/\s*(\d+:\d{2}(?::\d{2})?)/);
+            if (!match) {
+                continue;
+            }
 
             const learned = parseTimeToSeconds(match[1]);
             const total = parseTimeToSeconds(match[2]);
 
+            if (learned == null || total == null) {
+                continue;
+            }
+
+            return {
+                learned,
+                total,
+                raw: `${match[1]}/${match[2]}`
+            };
+        }
+
+        return null;
+    }
+
+    function getLessonActionElement(li) {
+        const selectors = [
+            'i[onclick*="beginStudy"]',
+            '[onclick*="beginStudy"]',
+            'a[href*="/venus/study/activity/video/study.do"]',
+            'a[href*="/venus/study/index/study.do"]',
+            'a[href]',
+            '[role="button"]',
+            'button',
+            '.tit',
+            '.title',
+            'strong'
+        ];
+
+        for (const selector of selectors) {
+            const el = li.querySelector(selector);
+            if (el) {
+                return el;
+            }
+        }
+
+        return li;
+    }
+
+    function getLessonTitleElement(li) {
+        const selectors = [
+            'strong',
+            '.tit',
+            '.title',
+            'a[href]',
+            'span',
+            'div'
+        ];
+
+        for (const selector of selectors) {
+            const el = li.querySelector(selector);
+            const text = (el?.textContent || '').trim();
+            if (text) {
+                return el;
+            }
+        }
+
+        return null;
+    }
+
+    function runCourseIndexPage() {
+        const lessonItems = [...document.querySelectorAll('ul.unitLevelList li, .unitLevelList li')];
+        const incompleteLessons = [];
+
+        lessonItems.forEach(li => {
+            const progress = extractLessonProgress(li);
+            const actEl = getLessonActionElement(li);
+
+            if (!progress || !actEl) return;
+
+            const { learned, total } = progress;
             if (learned == null || total == null || learned >= total) return;
 
-            const titleEl = li.querySelector('strong');
+            const titleEl = getLessonTitleElement(li);
             const title = (titleEl?.textContent || '未命名小节').trim();
 
             li.classList.add('xq-nav-lesson');
@@ -713,7 +787,7 @@
             btn.textContent = '进入学习';
             btn.onclick = () => triggerRealClick(first.actEl);
 
-            const container = first.li.querySelector('.other') || first.li;
+            const container = first.li.querySelector('.other, .op, .actions') || first.li;
             container.appendChild(btn);
         }
 
@@ -980,7 +1054,7 @@
         }
 
         drawer.innerHTML = `
-            <h3>学起 3.2.3 控制面板</h3>
+            <h3>学起 3.2.5 控制面板</h3>
 
             <div class="xq-row">
                 <label>自动打开第一门未达标课程</label>
